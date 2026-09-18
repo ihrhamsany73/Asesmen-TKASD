@@ -107,6 +107,20 @@
 
                     <!-- Tab Soal -->
                     <div id="admin-tab-soal" class="space-y-6">
+                        <!-- Import & Template Box -->
+                        <div class="bg-indigo-50 border border-indigo-200 p-4 rounded-xl flex flex-col md:flex-row justify-between items-center gap-4">
+                            <div>
+                                <h4 class="font-bold text-indigo-900 text-sm">Template & Import Soal Massal</h4>
+                                <p class="text-xs text-indigo-700 mt-0.5">Unduh template CSV/Excel untuk diisi, lalu unggah kembali untuk menambah soal secara massal.</p>
+                            </div>
+                            <div class="flex space-x-2 w-full md:w-auto">
+                                <button onclick="downloadTemplate()" class="flex-1 md:flex-none bg-white border border-indigo-300 hover:bg-indigo-100 text-indigo-700 font-medium px-4 py-2 rounded-lg text-xs transition">📥 Unduh Template</button>
+                                <label class="flex-1 md:flex-none bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-4 py-2 rounded-lg text-xs transition cursor-pointer text-center">
+                                    📂 Import CSV <input type="file" accept=".csv" onchange="handleImportCSV(event)" class="hidden">
+                                </label>
+                            </div>
+                        </div>
+
                         <form onsubmit="handleAddSoal(event)" class="bg-slate-50 p-5 rounded-xl border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4">
                             <h4 class="md:col-span-2 font-bold text-slate-800 text-sm border-b pb-2">Tambah Soal Baru TKA</h4>
                             <div>
@@ -423,14 +437,47 @@
                 fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'getAdminData' }) })
                 .then(res => res.json())
                 .then(data => {
-                    // Populate tables from GAS data response
-                });
+                    if (data.status === 'success') {
+                        document.getElementById('stat-total-siswa').textContent = data.totalSiswa || 0;
+                        document.getElementById('stat-total-soal').textContent = data.totalSoal || 0;
+                        document.getElementById('stat-total-hasil').textContent = data.totalHasil || 0;
+
+                        const tbodySoal = document.getElementById('table-soal-body');
+                        if (data.soal && data.soal.length > 0) {
+                            tbodySoal.innerHTML = data.soal.map(s => `
+                                <tr class="border-b hover:bg-slate-50">
+                                    <td class="p-3 font-medium">${s.mapel}</td>
+                                    <td class="p-3">${s.pertanyaan}</td>
+                                    <td class="p-3"><span class="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-bold">${s.kunci}</span></td>
+                                </tr>
+                            `).join('');
+                        } else {
+                            tbodySoal.innerHTML = `<tr><td colspan="3" class="p-4 text-center text-slate-400">Belum ada data soal.</td></tr>`;
+                        }
+
+                        const tbodyNilai = document.getElementById('table-nilai-body');
+                        if (data.hasil && data.hasil.length > 0) {
+                            tbodyNilai.innerHTML = data.hasil.map(h => `
+                                <tr class="border-b hover:bg-slate-50">
+                                    <td class="p-3 font-medium">${h.nama_lengkap}</td>
+                                    <td class="p-3">${h.mapel}</td>
+                                    <td class="p-3 font-bold text-indigo-600">${h.nilai}</td>
+                                    <td class="p-3 text-slate-500 text-xs">${h.waktu_selesai}</td>
+                                </tr>
+                            `).join('');
+                        } else {
+                            tbodyNilai.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-400">Belum ada rekap nilai ujian.</td></tr>`;
+                        }
+                    }
+                })
+                .catch(err => showToast('Gagal memuat data dari server', 'error'));
             }
         }
 
         function handleAddSoal(e) {
             e.preventDefault();
             const newSoal = {
+                action: 'addSoal',
                 mapel: document.getElementById('soal-mapel').value,
                 pertanyaan: document.getElementById('soal-tanya').value,
                 a: document.getElementById('soal-a').value,
@@ -446,7 +493,116 @@
                 showToast('Soal berhasil ditambahkan!');
                 document.querySelector('#admin-tab-soal form').reset();
                 loadAdminData();
+            } else {
+                fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(newSoal)
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showToast('Soal berhasil ditambahkan ke database!');
+                        document.querySelector('#admin-tab-soal form').reset();
+                        loadAdminData();
+                    } else {
+                        showToast(data.message, 'error');
+                    }
+                })
+                .catch(err => showToast('Gagal menyimpan soal ke server', 'error'));
             }
+        }
+
+        // Download Template Soal
+        function downloadTemplate() {
+            if (IS_PREVIEW) {
+                triggerDownloadCSV("mapel,pertanyaan,a,b,c,d,kunci\nMatematika,Contoh pertanyaan?,A,B,C,D,A");
+            } else {
+                fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'downloadTemplateSoal' })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        triggerDownloadCSV(data.csv);
+                    } else {
+                        showToast('Gagal mengunduh template', 'error');
+                    }
+                })
+                .catch(err => showToast('Gagal terhubung ke server', 'error'));
+            }
+        }
+
+        function triggerDownloadCSV(csvText) {
+            const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.setAttribute('download', 'template_soal_tka.csv');
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            showToast('Template berhasil diunduh!');
+        }
+
+        // Import CSV Soal
+        function handleImportCSV(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const text = evt.target.result;
+                const lines = text.split('\n');
+                const soalList = [];
+
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line) continue;
+                    const cols = line.split(',');
+                    if (cols.length >= 7) {
+                        soalList.push({
+                            mapel: cols[0].trim(),
+                            pertanyaan: cols[1].trim(),
+                            a: cols[2].trim(),
+                            b: cols[3].trim(),
+                            c: cols[4].trim(),
+                            d: cols[5].trim(),
+                            kunci: cols[6].trim()
+                        });
+                    }
+                }
+
+                if (soalList.length === 0) {
+                    showToast('Format CSV tidak valid atau kosong', 'error');
+                    return;
+                }
+
+                if (IS_PREVIEW) {
+                    soalList.forEach(s => {
+                        s.id_soal = DUMMY_DB.soal.length + 1;
+                        DUMMY_DB.soal.push(s);
+                    });
+                    showToast(`Berhasil mengimpor ${soalList.length} soal!`);
+                    loadAdminData();
+                } else {
+                    fetch(GAS_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'importSoalBatch', soalList: soalList })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            showToast(data.message);
+                            loadAdminData();
+                        } else {
+                            showToast(data.message, 'error');
+                        }
+                    })
+                    .catch(err => showToast('Gagal mengimpor soal ke server', 'error'));
+                }
+            };
+            reader.readAsText(file);
         }
 
         function runDatabaseSetup() {
@@ -455,7 +611,8 @@
             } else {
                 fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'setupDatabase' }) })
                 .then(res => res.json())
-                .then(data => showToast(data.message));
+                .then(data => showToast(data.message))
+                .catch(err => showToast('Gagal menjalankan setup database', 'error'));
             }
         }
 
@@ -464,8 +621,26 @@
             activeExamMapel = mapel;
             if (IS_PREVIEW) {
                 examQuestions = DUMMY_DB.soal.filter(x => x.mapel === mapel);
+                proceedStartExam();
+            } else {
+                fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'getSoalByMapel', mapel: mapel })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        examQuestions = data.soal || [];
+                        proceedStartExam();
+                    } else {
+                        showToast(data.message, 'error');
+                    }
+                })
+                .catch(err => showToast('Gagal mengambil soal dari server', 'error'));
             }
+        }
 
+        function proceedStartExam() {
             if (examQuestions.length === 0) {
                 showToast('Belum ada soal tersedia untuk mapel ini!', 'error');
                 return;
@@ -474,8 +649,8 @@
             currentQuestionIndex = 0;
             userAnswers = {};
             timeLeftSeconds = 1800;
-            document.getElementById('exam-mapel-badge').textContent = mapel;
-            document.getElementById('exam-title').textContent = `Asesmen TKA ${mapel} Kelas 6`;
+            document.getElementById('exam-mapel-badge').textContent = activeExamMapel;
+            document.getElementById('exam-title').textContent = `Asesmen TKA ${activeExamMapel} Kelas 6`;
 
             switchView('view-exam');
             renderQuestion();
@@ -560,6 +735,18 @@
                     nilai: finalScore,
                     waktu_selesai: new Date().toISOString().slice(0, 19).replace('T', ' ')
                 });
+            } else {
+                fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        action: 'submitExam',
+                        username: currentUser,
+                        mapel: activeExamMapel,
+                        nilai: finalScore
+                    })
+                })
+                .then(res => res.json())
+                .catch(err => console.error('Gagal mengirim hasil ujian ke server'));
             }
 
             document.getElementById('final-score-display').textContent = finalScore;
